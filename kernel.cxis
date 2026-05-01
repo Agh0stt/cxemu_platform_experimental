@@ -1,0 +1,520 @@
+; kernel.cxis — CxOS Kernel + Shell — text section FIRST
+
+section text:
+
+global _start:
+    mov  0x03F00000, sp
+    mov  0, a0
+    mov  0x07, a1
+    int  0x12
+    mov  s_banner, a0
+    call k_puts
+    goto shell_loop
+
+global shell_loop:
+    mov  s_prompt, a0
+    call k_puts
+    mov  4, a0
+    mov  input_buf, a1
+    mov  255, a2
+    int  0x10
+    mov  input_buf, i0
+    movb [i0], i1
+    eq   i1, 0, c0
+    je   c0, shell_loop
+    mov  input_buf, a0
+    mov  cmd_help, a1
+    call strcmp
+    eq   a0, 0, c0
+    je   c0, do_help
+    mov  input_buf, a0
+    mov  cmd_clear, a1
+    call strcmp
+    eq   a0, 0, c0
+    je   c0, do_clear
+    mov  input_buf, a0
+    mov  cmd_echo, a1
+    call strncmp4
+    eq   a0, 0, c0
+    je   c0, do_echo
+    mov  input_buf, a0
+    mov  cmd_halt, a1
+    call strcmp
+    eq   a0, 0, c0
+    je   c0, do_halt
+    mov  input_buf, a0
+    mov  cmd_info, a1
+    call strcmp
+    eq   a0, 0, c0
+    je   c0, do_info
+    mov  input_buf, a0
+    mov  cmd_mem, a1
+    call strcmp
+    eq   a0, 0, c0
+    je   c0, do_mem
+    mov  input_buf, a0
+    mov  cmd_uptime, a1
+    call strcmp
+    eq   a0, 0, c0
+    je   c0, do_uptime
+    mov  input_buf, a0
+    mov  cmd_ls, a1
+    call strcmp
+    eq   a0, 0, c0
+    je   c0, do_ls
+    mov  input_buf, a0
+    mov  cmd_cat, a1
+    call strncmp4
+    eq   a0, 0, c0
+    je   c0, do_cat
+    mov  input_buf, a0
+    mov  cmd_disk, a1
+    call strcmp
+    eq   a0, 0, c0
+    je   c0, do_disk
+    mov  input_buf, a0
+    mov  cmd_reboot, a1
+    call strcmp
+    eq   a0, 0, c0
+    je   c0, do_reboot
+    mov  s_unknown, a0
+    call k_puts
+    goto shell_loop
+
+global do_help:
+    mov  s_help, a0
+    call k_puts
+    goto shell_loop
+
+global do_clear:
+    mov  0, a0
+    mov  0x07, a1
+    int  0x12
+    goto shell_loop
+
+global do_echo:
+    mov  input_buf, i0
+    mov  5, i1
+    add  i0, i1, i0
+    movb [i0], i1
+    eq   i1, 0, c0
+    je   c0, echo_nl
+    mov  i0, a0
+    call k_puts
+echo_nl:
+    mov  s_newline, a0
+    call k_puts
+    goto shell_loop
+
+global do_halt:
+    mov  s_halt, a0
+    call k_puts
+    mov  0, a0
+    mov  0, a1
+    int  0x16
+
+global do_info:
+    mov  s_info_hdr, a0
+    call k_puts
+    mov  0, a0
+    int  0x17
+    mov  a0, i8
+    mov  a1, i9
+    mov  a2, i10
+    mov  s_info_sig, a0
+    call k_puts
+    mov  i8, a0
+    call k_puthex
+    mov  s_newline, a0
+    call k_puts
+    mov  s_info_ver, a0
+    call k_puts
+    mov  i9, a0
+    call k_puthex
+    mov  s_newline, a0
+    call k_puts
+    mov  s_info_feat, a0
+    call k_puts
+    mov  i10, a0
+    call k_puthex
+    mov  s_newline, a0
+    call k_puts
+    mov  3, a0
+    int  0x17
+    mov  a0, i11
+    mov  s_info_bios, a0
+    call k_puts
+    mov  i11, a0
+    call k_puts
+    mov  s_newline, a0
+    call k_puts
+    goto shell_loop
+
+global do_mem:
+    mov  1, a0
+    int  0x17
+    mov  a0, i8
+    shr  i8, 20, i9
+    mov  s_mem_bytes, a0
+    call k_puts
+    mov  i8, a0
+    call k_putint
+    mov  s_newline, a0
+    call k_puts
+    mov  s_mem_mb, a0
+    call k_puts
+    mov  i9, a0
+    call k_putint
+    mov  s_newline, a0
+    call k_puts
+    goto shell_loop
+
+global do_uptime:
+    mov  3, a0
+    int  0x15
+    mov  a0, i8
+    mov  s_uptime, a0
+    call k_puts
+    mov  i8, a0
+    call k_putint
+    mov  s_sec, a0
+    call k_puts
+    goto shell_loop
+
+global do_ls:
+    mov  s_fs_hdr, a0
+    call k_puts
+    mov  s_fs_list, a0
+    call k_puts
+    goto shell_loop
+
+global do_cat:
+    ; supports: cat readme / cat motd / cat version
+    mov  input_buf, i0
+    mov  4, i1
+    add  i0, i1, i0
+    movb [i0], i1
+    eq   i1, 32, c0
+    je   c0, cat_skip_space
+    mov  s_cat_usage, a0
+    call k_puts
+    goto shell_loop
+cat_skip_space:
+    inc  i0
+    mov  i0, a0
+    mov  fs_readme, a1
+    call strcmp
+    eq   a0, 0, c0
+    je   c0, cat_readme
+    mov  i0, a0
+    mov  fs_motd, a1
+    call strcmp
+    eq   a0, 0, c0
+    je   c0, cat_motd
+    mov  i0, a0
+    mov  fs_version, a1
+    call strcmp
+    eq   a0, 0, c0
+    je   c0, cat_version
+    mov  s_cat_notfound, a0
+    call k_puts
+    goto shell_loop
+cat_readme:
+    mov  s_file_readme, a0
+    call k_puts
+    goto shell_loop
+cat_motd:
+    mov  s_file_motd, a0
+    call k_puts
+    goto shell_loop
+cat_version:
+    mov  s_file_version, a0
+    call k_puts
+    goto shell_loop
+
+global do_disk:
+    mov  2, a0
+    int  0x17
+    mov  a0, i8
+    mov  4, a0
+    int  0x17
+    mov  a0, i9
+    mov  s_disk_count, a0
+    call k_puts
+    mov  i8, a0
+    call k_putint
+    mov  s_newline, a0
+    call k_puts
+    mov  s_boot_disk, a0
+    call k_puts
+    mov  i9, a0
+    call k_putint
+    mov  s_newline, a0
+    call k_puts
+    goto shell_loop
+
+global do_reboot:
+    mov  s_reboot, a0
+    call k_puts
+    mov  1, a0
+    mov  0, a1
+    int  0x16
+
+global k_puts:
+    push i8
+    mov  a0, i8
+kp_loop:
+    movb [i8], i9
+    eq   i9, 0, c0
+    je   c0, kp_done
+    mov  0, a0
+    mov  i9, a1
+    int  0x10
+    inc  i8
+    goto kp_loop
+kp_done:
+    pop  i8
+    ret
+
+global k_putint:
+    mov  a0, a1
+    mov  5, a0
+    int  0x10
+    ret
+
+global k_puthex:
+    mov  a0, a1
+    mov  6, a0
+    int  0x10
+    ret
+
+global strcmp:
+    push i8
+    push i9
+    push i10
+    push i11
+    mov  a0, i8
+    mov  a1, i9
+sc_loop:
+    movb [i8], i10
+    movb [i9], i11
+    eq   i10, i11, c0
+    jne  c0, sc_ne
+    eq   i10, 0, c0
+    je   c0, sc_eq
+    inc  i8
+    inc  i9
+    goto sc_loop
+sc_eq:
+    mov  0, a0
+    goto sc_ret
+sc_ne:
+    mov  1, a0
+sc_ret:
+    pop  i11
+    pop  i10
+    pop  i9
+    pop  i8
+    ret
+
+global strncmp4:
+    push i8
+    push i9
+    push i10
+    push i11
+    mov  a0, i8
+    mov  a1, i9
+    mov  4, i11
+sn_loop:
+    eq   i11, 0, c0
+    je   c0, sn_eq
+    movb [i8], i10
+    movb [i9], i12
+    eq   i10, i12, c0
+    jne  c0, sn_ne
+    inc  i8
+    inc  i9
+    dec  i11
+    goto sn_loop
+sn_eq:
+    mov  0, a0
+    goto sn_ret
+sn_ne:
+    mov  1, a0
+sn_ret:
+    pop  i11
+    pop  i10
+    pop  i9
+    pop  i8
+    ret
+
+section rodata:
+
+global s_banner:
+    db "================================================"
+    db 10
+    db "  CxOS v1.0  --  CXIS Operating System"
+    db 10
+    db "  Type 'help' for available commands."
+    db 10
+    db "================================================"
+    db 10
+    db 0
+global s_prompt:
+    db "CxOS> "
+    db 0
+global s_unknown:
+    db "Unknown command. Type 'help'."
+    db 10
+    db 0
+global s_help:
+    db "Commands:"
+    db 10
+    db "  help   -- show this message"
+    db 10
+    db "  info   -- CPU/BIOS information"
+    db 10
+    db "  mem    -- memory information"
+    db 10
+    db "  uptime -- seconds since boot"
+    db 10
+    db "  ls     -- list pseudo-files"
+    db 10
+    db "  cat X  -- print pseudo-file (readme/motd/version)"
+    db 10
+    db "  disk   -- disk count + boot disk"
+    db 10
+    db "  reboot -- request reboot"
+    db 10
+    db "  clear  -- clear the screen"
+    db 10
+    db "  echo   -- print text  (e.g. echo hello)"
+    db 10
+    db "  halt   -- shut down CxOS"
+    db 10
+    db 0
+global s_halt:
+    db 10
+    db "CxOS: halting. Goodbye!"
+    db 10
+    db 0
+global s_newline:
+    db 10
+    db 0
+global cmd_help:
+    db "help"
+    db 0
+global cmd_clear:
+    db "clear"
+    db 0
+global cmd_echo:
+    db "echo"
+    db 0
+global cmd_halt:
+    db "halt"
+    db 0
+global cmd_info:
+    db "info"
+    db 0
+global cmd_mem:
+    db "mem"
+    db 0
+global cmd_uptime:
+    db "uptime"
+    db 0
+global cmd_ls:
+    db "ls"
+    db 0
+global cmd_cat:
+    db "cat "
+    db 0
+global cmd_disk:
+    db "disk"
+    db 0
+global cmd_reboot:
+    db "reboot"
+    db 0
+global fs_readme:
+    db "readme"
+    db 0
+global fs_motd:
+    db "motd"
+    db 0
+global fs_version:
+    db "version"
+    db 0
+global s_info_hdr:
+    db "System info:"
+    db 10
+    db 0
+global s_info_sig:
+    db "  cpu sig : 0x"
+    db 0
+global s_info_ver:
+    db "  cpu ver : 0x"
+    db 0
+global s_info_feat:
+    db "  features: 0x"
+    db 0
+global s_info_bios:
+    db "  bios    : "
+    db 0
+global s_mem_bytes:
+    db "Memory bytes: "
+    db 0
+global s_mem_mb:
+    db "Memory MB: "
+    db 0
+global s_uptime:
+    db "Uptime: "
+    db 0
+global s_sec:
+    db " s"
+    db 10
+    db 0
+global s_fs_hdr:
+    db "Pseudo FS:"
+    db 10
+    db 0
+global s_fs_list:
+    db "  readme"
+    db 10
+    db "  motd"
+    db 10
+    db "  version"
+    db 10
+    db 0
+global s_cat_usage:
+    db "Usage: cat <readme|motd|version>"
+    db 10
+    db 0
+global s_cat_notfound:
+    db "cat: file not found"
+    db 10
+    db 0
+global s_file_readme:
+    db "CxOS README: lightweight shell + ABIOS services."
+    db 10
+    db 0
+global s_file_motd:
+    db "Welcome to CxOS."
+    db 10
+    db 0
+global s_file_version:
+    db "CxOS version 1.1"
+    db 10
+    db 0
+global s_disk_count:
+    db "Disk count: "
+    db 0
+global s_boot_disk:
+    db "Boot disk : "
+    db 0
+global s_reboot:
+    db "CxOS: reboot requested."
+    db 10
+    db 0
+
+section bss:
+global input_buf:
+    resb 256

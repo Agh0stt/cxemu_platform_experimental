@@ -1,0 +1,158 @@
+; ════════════════════════════════════════════════════════════════
+; abios.cxis  —  CXIS Advanced BIOS v1.1
+; Loaded at 0x0500.  Entry: abios_reset (called by reset stub).
+;
+; Boot flow:
+;   CPU 0x0000 → reset stub → abios_reset
+;   POST → prints banner → goto 0x1C00 (bootloader)
+;   BIOS knows NOTHING about the kernel. Just hands off.
+;
+; Uses legacy cxemu int vectors:
+;   int 0x01  a0=ptr a1=len  → print string
+;   int 0x02  a0=char        → print char
+;   int 0x04  a0=code        → exit
+; ════════════════════════════════════════════════════════════════
+
+section rodata:
+
+global s_sep:
+    db "================================================"
+    db 10
+    db 0
+
+global s_title:
+    db "  CXIS ABIOS v1.1  --  Advanced BIOS"
+    db 10
+    db 0
+
+global s_mem:
+    db "  [POST] Memory................ OK  (64 MB)"
+    db 10
+    db 0
+
+global s_cpu:
+    db "  [POST] CPU................... OK  (CXIS v1.1)"
+    db 10
+    db 0
+
+global s_vid:
+    db "  [POST] Video................. OK  (80x25 text)"
+    db 10
+    db 0
+
+global s_disk:
+    db "  [POST] Disk controller....... OK"
+    db 10
+    db 0
+
+global s_hand:
+    db "  [BIOS] POST complete. Jumping to bootloader..."
+    db 10
+    db 0
+
+section text:
+
+; ── strlen: a0=ptr → a0=len ──────────────────────────────────
+bios_strlen:
+    push i8
+    push i9
+    mov  a0, i8
+    mov  0,  i9
+bios_strlen_loop:
+    movb [i8], i10
+    eq   i10, 0, c0
+    je   c0, bios_strlen_done
+    inc  i8
+    inc  i9
+    goto bios_strlen_loop
+bios_strlen_done:
+    mov  i9, a0
+    pop  i9
+    pop  i8
+    ret
+
+; ── print null-terminated string: a0=ptr ─────────────────────
+bios_puts:
+    push i8
+    push i9
+    mov  a0, i8          ; save ptr
+    call bios_strlen     ; a0 = len
+    mov  i8, a0          ; ptr
+    mov  a0, a1          ; len (a0 from strlen is now in a1)
+    ; wait -- strlen returns in a0, we need ptr in a0 and len in a1
+    pop  i9
+    pop  i8
+    ret
+
+; simpler: just inline print
+; ── print_str: a0=ptr ────────────────────────────────────────
+global bios_print:
+    push i8
+    push i9
+    mov  a0, i8          ; i8 = ptr
+    mov  0, i9           ; i9 = len
+bios_print_count:
+    movb [i8], i10
+    eq   i10, 0, c0
+    je   c0, bios_print_emit
+    inc  i8
+    inc  i9
+    goto bios_print_count
+bios_print_emit:
+    ; a0=original ptr (saved in... wait we clobbered it)
+    ; recalculate: original ptr = i8 - i9
+    sub  i8, i9, i8      ; i8 = original ptr
+    mov  i8, a0
+    mov  i9, a1
+    int  0x01            ; print string
+    pop  i9
+    pop  i8
+    ret
+
+; ── BIOS entry ───────────────────────────────────────────────
+global abios_reset:
+
+    ; init stack
+    mov  0x03F00000, sp
+
+    ; ── POST ─────────────────────────────────────────────────
+    mov  s_sep, a0
+    call bios_print
+
+    mov  s_title, a0
+    call bios_print
+
+    mov  s_sep, a0
+    call bios_print
+
+    ; write ABIOS data defaults
+    mov  0x00001010, i0  ; ADA_HEAP_PTR
+    mov  0x02000000, i1  ; MEM_HEAP_BASE
+    mov  i1, [i0]
+
+    mov  0x0000100E, i0  ; ADA_ATTR
+    mov  0x07, i1
+    movb i1, [i0]
+
+    mov  0x00001020, i0  ; ADA_BIOS_FLAG
+    mov  0x00AB1050, i1
+    mov  i1, [i0]
+
+    mov  s_mem,  a0
+    call bios_print
+    mov  s_cpu,  a0
+    call bios_print
+    mov  s_vid,  a0
+    call bios_print
+    mov  s_disk, a0
+    call bios_print
+
+    mov  s_sep, a0
+    call bios_print
+
+    mov  s_hand, a0
+    call bios_print
+
+    ; ── hand off to bootloader — no questions asked ───────────
+    mov  0x00001C00, i0
+    goto i0

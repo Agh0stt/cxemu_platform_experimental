@@ -1,0 +1,48 @@
+; ════════════════════════════════════════════════════════════════
+; boot.cxis — CxOS Bootloader
+; Linked at 0x1C08 (disk[8] -> RAM[0x1C08], skipping CXEBOOT header)
+; Sets up stack, prints boot message, jumps to kernel at 0x4000.
+; ════════════════════════════════════════════════════════════════
+
+section rodata:
+
+global s_boot:
+    db "================================================"
+    db 10
+    db "  CxOS Bootloader v1.0"
+    db 10
+    db "  Jumping to kernel..."
+    db 10
+    db "================================================"
+    db 10
+    db 0
+
+section text:
+
+global _start:
+    ; set up stack
+    mov  0x03F00000, sp
+
+    ; print boot message
+    mov  s_boot, a0
+    call puts
+
+    ; jump to kernel
+    mov  0x00004000, i0
+    goto i0
+
+; puts: print null-terminated string in a0 via int 0x02 (ABIOS print char)
+global puts:
+    push i8
+    mov  a0, i8
+puts_loop:
+    movb [i8], i9
+    eq   i9, 0, c0
+    je   c0, puts_done
+    mov  i9, a0
+    int  0x02
+    inc  i8
+    goto puts_loop
+puts_done:
+    pop  i8
+    ret
